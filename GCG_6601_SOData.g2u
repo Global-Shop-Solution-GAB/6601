@@ -1,0 +1,137 @@
+﻿Program.Sub.Preflight.Start
+V.Global.sError.Declare(String)
+
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Author: Arturo Almaguer
+'Date: 26 January 2022
+'Customer: Daystar Products
+'This program keeps better track of who created an order and who modified it on new and existing SOs.
+'This script is triggered from SO master populate 11560 hook, order selected 11565 hook and pre-save 11869 hook
+
+Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+
+F.Intrinsic.Control.Try
+
+	F.Intrinsic.Control.SelectCase(V.Caller.Hook)
+		
+		F.Intrinsic.Control.Case(11560)
+		'11560 SO Header populate hook
+		
+			'Renaming labels and locking Order Sort and Order Sort 2 fields
+			V.Passed.000117.Set("Creation User") 
+			V.Passed.000116.Set("Last-Change User") 
+			F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000045, "LOCK", 1)
+			F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000073, "LOCK", 1)
+			
+		F.Intrinsic.Control.Case(11565)
+		'11565 SO Header order selected hook
+			F.Intrinsic.Control.CallSub(ExistingSO)
+		
+		F.Intrinsic.Control.Case(11869)
+		'11869 SO Header pre-save hook
+			F.Intrinsic.Control.CallSub(NewSO)
+			
+	F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.Catch
+
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+Program.Sub.NewSO.Start
+'This subroutine displays phone and user id information in SO Header
+
+F.Intrinsic.Control.Try
+
+	V.Local.sSQL.Declare(String)
+	V.Local.sCustomer.Declare(String)
+	V.Local.sPhoneNumber.Declare(String)
+	
+	'If the user is creating a new SO, continue with process
+	F.Intrinsic.Control.If(V.Caller.Switches, =, "N")
+		
+		'Storing user ID who is creating the SO in 'Order Sort' field for all new SOs
+		V.Passed.000045.Set(V.Caller.User)
+		
+		'If there is no phone number, then get the phone number linked to the customer in the AR Customer master.
+		F.Intrinsic.Control.If(V.Passed.000051, =, "")
+			
+			'Setting variable
+			V.Local.sCustomer.Set(V.Passed.000006)
+			
+			'Getting the customer phone number
+			F.ODBC.Connection!Con.OpenCompanyConnection
+			Function.Intrinsic.String.Build("select LTRIM(TELEPHONE) TELEPHONE from V_CUSTOMER_MASTER where CUSTOMER = '{0}';", V.Local.sCustomer, V.Local.sSQL)
+			F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSQL, V.Local.sPhoneNumber)
+			F.ODBC.Connection!Con.Close
+			
+			'Displaying phone number in the 'Contact Phone' field
+			V.Passed.000051.Set(V.Local.sPhoneNumber)
+			
+		F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.NewSO.End
+Program.Sub.ExistingSO.Start
+'This subroutine displays user id information in SO Header
+
+F.Intrinsic.Control.Try
+
+	V.Local.sOrderNo.Declare(String)
+	V.Local.sUserID.Declare(String)
+	V.Local.sSQL.Declare(String)
+	
+	'If the user is opening an existing SO, continue with process
+	F.Intrinsic.Control.If(V.Caller.Switches, =, "O")
+	
+		'Setting variable and locking 'Creation User' and 'Last Change User' fields, previously named 'Order Sort' and 'Order Sort 2'
+		F.Intrinsic.String.LPad(V.Passed.000003,"0",7,V.Local.sOrderNo)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000045, "LOCK", 1)
+		F.Intrinsic.UI.ChangeCallerProperty(V.Passed.000073, "LOCK", 1)
+		
+		'Getting the user id who last modified the SO
+		F.ODBC.Connection!Con.OpenCompanyConnection
+		Function.Intrinsic.String.Build("select RTRIM(LAST_CHG_BY) USER_ID from V_ORDER_HEADER where ORDER_NO = '{0}';", V.Local.sOrderNo, V.Local.sSQL)
+		F.ODBC.Connection!Con.ExecuteAndReturn(V.Local.sSQL, V.Local.sUserID)
+		F.ODBC.Connection!Con.Close
+		
+		'Displaying user ID in 'Order Sort 2' field
+		V.Passed.000073.Set(V.Local.sUserID)
+		
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+
+	F.Intrinsic.Control.CallSub(CatchError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.ExistingSO.End
+Program.Sub.CatchError.Start
+'To display the error
+F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}", V.Ambient.ScriptPath, V.Ambient.Newline, V.Ambient.SubroutineCalledFrom, V.Ambient.ErrorNumber, V.Ambient.ErrorDescription, V.Ambient.GABVersion, V.Global.sError) 
+F.Intrinsic.UI.Msgbox(V.Global.sError)
+F.Intrinsic.Control.CallSub("Unload")
+Program.Sub.CatchError.End
+Program.Sub.Unload.Start
+'Closes the connection if it is open
+f.Intrinsic.Control.If(v.ODBC.con.exists,=,"1") 	
+    f.ODBC.Connection!Con.Close
+f.Intrinsic.Control.EndIf
+
+'End program
+F.Intrinsic.Control.End()
+Program.Sub.Unload.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$apadilla$}$20220128090727966$}$Lag9STqBJOmNXSbd5+msRcBWPGz0aFqSzPePUG9qWbzgX7a/8LKSxRbbZOzN4x2nD/S3RUIA8AuIiexsjDKh6w==
+Program.Sub.Comments.End
